@@ -1,0 +1,788 @@
+---
+title: "Deka_Maria"
+author: "mariadeka"
+date: '2022-05-03'
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+r = getOption("repos")
+r["CRAN"] = "http://cran.us.r-project.org"
+options(repos = r)
+install.packages("weatherData")
+install.packages("weatherData",repos = "http://cran.us.r-project.org")
+library("sqldf")
+library("dplyr")
+library("compare")
+library("data.table")
+library("stringi")
+library("microbenchmark")
+
+options(stringsAsFactors=FALSE)
+install.packages("microbenchmark")
+library("microbenchmark")
+```
+
+**WSTĘP - do czego służą poszczególne zapytania języka SQL**
+
+SELECT (1) FROM (2)- pobiera z tabeli (2) kolumny o wypisanych nazwach (1)
+WHERE (3) - wybiera z tabeli wiersze, które spełniają warunek (3)
+
+JOIN (4) ON (5) - pozwala na dołączenie do tabeli, na której pracujemy kolumn z (4) dopasowując wiersze tak, żeby została spełniona równość (5)
+GROUP BY (6) - pozwala na podzielenie tabeli na logicne grupy, biorąc pod uwagę wartości w kolumnie (6)
+LIMIT (7) - powoduje zwrócenie jedynie (7) pierwszych wierszy z tabeli
+(8) AS (9) - tworzy kolumnę zawierającą wyniki powstałe przez wykonanie (8), o nazwie (9) /działaniem (8) może być przykładowo SUM(10) - sumuje wartości z kolumny (10)/ AVG(10) - wylicza średnią arytmetyczną z wartości w (10)/MAX(10) - zwraca maksymalną wartość z 10
+COUNT(11) - służy do zliczania liczby wierszy w zbiorze wartości (10) /(*) oznacza wszystkie wiersze, łącznie z tymi w których jest wartość NULL
+STRFTIME(12) - pozwala na modyfikowanie formatu daty z (12)
+CASE WHEN (13) THEN (14) ELSE (15) - w przypadku gdy (13) ma wartość logiczną TRUE, ZWRACA (14), a gdy (13) ma wartość logiczną FALSE, to zwraca (15)
+(WHERE) (16) (NOT) IN (17) - (wybiera te wiersze gdy) (16) (nie) przyjmnuje wartości z (17)
+ORDER BY (18) - pozwala na sortowanie wierszy w otrzymanej tabeli biorąc pod uwagę wartości w kolumnie (18) (domyślnie ustawiamy w kolejności rosnącej, lecz ORDER BY (18) DESC - kolejność malejąca)
+HAVING (19) - wybiera wiersze, które spełniają warunek (19)
+
+
+**Zadanie 1**
+
+```{r}
+options(stringsAsFactors=FALSE)
+Tags <- read.csv("~/Desktop/studia/2.semestr/PDU/projekt 2/Tags.csv")
+```
+
+*rozwiązanie 1 - za pomocą poleceń z języka SQL*
+
+```{r}
+df_sql_1 <- function(Tags){
+  sqldf('SELECT Count, TagName
+        FROM Tags
+        WHERE Count > 1000
+        ORDER BY Count DESC') -> df1
+  return(df1)
+}
+```
+
+*rozwiązanie 2 - za pomocą funkcji bazowych*
+
+```{r}
+df_base_1 <- function(Tags){
+  #wybieram z pliku "Tags" kolumny o nazwach "Count" i "TagName", a następnie zostawiam tylko te wiersze, dla których wartość w kolumnie "Count" jest większa niż 1000, wynik zapisuję jako data.frame "wybrane_wiersze"
+  wybrane_wiersze <- data.frame(Tags$Count, Tags$TagName)[which(Tags$Count > 1000), ] 
+  #zmieniam nazwy kolumn z "Tags.Count" i "Tags.TagName" na "Count" i "TagName"
+  colnames(wybrane_wiersze) <- c("Count", "TagName") 
+  #sortuję wybrane_wiersze malejąco względem wartości w kolumnie "Count"
+  wybrane_wiersze[order(wybrane_wiersze$Count), ]
+  rownames(wybrane_wiersze) <- NULL
+  return(wybrane_wiersze)
+}
+```
+
+sprawdzam poprawność funkcji (czy jest równa z funkcją zapisaną w SQL)
+
+```{r}
+all_equal(df_base_1(Tags), df_sql_1(Tags))
+```
+
+*rozwiązanie 3 - za pomocą funkcji z pakietu dplyr*
+
+```{r}
+df_dplyr_1 <- function(Tags){
+  Tags%>%select(Count, TagName)%>%filter(Count > 1000)%>%arrange(-Count)
+  #%>% oznacza odwołanie do konkretnego elementu, zatem Tags %>% oznacza to, ze dalej będę odwoływała się do elementów z "Tags"
+  #select() pozwala wybrać konkretne kolumny, zatem Tags%>%select(Count, TagName) oznacza dwie kolumny - "Count" i "TagName" z "Tags"
+  #filter() pozwala na wybranie z danego pliku tylko wierszy spełniających dany warunek, zatem filter(Tags %>% select(Count, TagName), Count > 1000) oznacza, ze z Tags%>%select(Count, TagName) wybiorę tylko te wiersze, w których wartość w kolumnie Count jest wieksza od 1000
+  #fukcja arrange() odpowiada za sortowanie wartosci, względem wartości w danej kolumnie, zatem arrange(filter(Tags %>% select(Count, TagName), Count > 1000), -Count) oznacza, że sortuję wiersze w filter(Tags %>% select(Count, TagName), Count > 1000) względem wartości w kolumnie "Count" "-" oznacza, że wartości te muszą zostać posortowane malejąco
+}
+```
+
+sprawdzam poprawność zapisanej funkcji 
+
+```{r}
+all_equal(df_dplyr_1(Tags), df_sql_1(Tags))
+```
+
+*rozwiązanie 4 - za pomocą funkcji z pakietu data.table*
+
+```{r}
+df_table_1 <- function(Tags){
+  wynik <- setorder(as.data.table(Tags)[,. (Count, TagName)][Count > 1000], -Count)
+  #as.data.table(Tags)[,. (Count, TagName)] pozwala na wybranie kolumn "Count" i "TagName" z "Tags" jako data.table.
+  #[Count > 1000] pozwala na wybranie tylko tych wierszy, w których wartość w kolumnie "Count" jest większa niż 1000
+  #setorder(as.data.table(Tags)[,. (Count, TagName)][Count > 1000], -Count) pozwala na posortowanie wierszy w as.data.table(Tags)[,. (Count, TagName)][Count > 1000] względem ich wartości w kolumnie "Count", "-" przed nazwą kolumny oznacza, że wartości zostaną posortowane malejąco
+  wynik
+}
+```
+
+sprawdzam poprawność zapisanej funkcji
+
+```{r}
+all_equal(df_table_1(Tags), df_sql_1(Tags))
+```
+
+porównywanie czasu wykonywania tych funkcji
+
+```{r}
+microbenchmark(
+  sqldf = df_sql_1(Tags),
+  base = df_base_1(Tags),
+  dplyr = df_dplyr_1(Tags),
+  data.table = df_table_1(Tags)
+)
+```
+
+**Zadanie 2**
+```{r}
+Users <- read.csv("~/Desktop/studia/2.semestr/PDU/projekt 2/Users.csv")
+Posts <- read.csv("~/Desktop/studia/2.semestr/PDU/projekt 2/Posts.csv")
+```
+
+*rozwiązanie 1 - za pomocą języka SQL*
+
+```{r}
+df_sql_2 <- function(Users, Posts){
+  sqldf("SELECT Location, COUNT(*) AS Count
+        FROM (
+        SELECT Posts.OwnerUserId, Users.Id, Users.Location
+        FROM Users
+        JOIN Posts ON Users.Id = Posts.OwnerUserId
+        )
+        WHERE Location NOT IN ('')
+        GROUP BY Location
+        ORDER BY Count DESC
+        LIMIT 10") -> df2
+  return(df2)
+}
+```
+
+*rozwiązanie 2 - z użyciem tylko funkcji bazowych*
+
+```{r}
+df_base_2 <- function(Users, Posts){
+  #łączę data frame Users i Posts biorąc pod uwage wartości w kolumnie "Id" z "Users" i "OwnerUserId" z "Posts" - zostawiam tylko wiersze, w których wartości w obu wspomnianych kolumnach się zgadzają, resztę wierszy usuwam
+  zmergowany <- merge(Users, Posts, all.x = FALSE, all.y = FALSE,  by.x = "Id", by.y = "OwnerUserId")
+  #z otrzymanego wczesniej data frame wybieram potrzebne kolumny - "Id" i "Location", tak też je nazywając
+  zrodlo <- data.frame(zmergowany$Id, zmergowany$Location)
+  colnames(zrodlo) <- c("Id", "Location")
+  #tworzę data frame lokalizacja, składający się z kolumny "Location" pobranej ze wcześniej utworzonego data frame'u - "zrodlo", ale zawierającej tylko unikalne wartości z tej kolumny oraz kolumny "Count" zawierającej wartość ile razy konkretna wartość z "Location" występuje w data fram'ie "zrodlo"
+  lokalizacja <- as.data.frame(zrodlo$Location)
+  colnames(lokalizacja) <- c("Location")
+  zliczona_lokalizacja <- aggregate(lokalizacja$Location, by = lokalizacja["Location"], FUN = length)
+  colnames(zliczona_lokalizacja)[2] <- "Count"
+  #z otrzymanego data frame "zliczona_lokalizacja" usuwam wszystkie wiersze, w których kolumna "Location" jest pusta
+  zliczona_lokalizacja <- zliczona_lokalizacja[zliczona_lokalizacja$Location != '', c("Location", "Count")] 
+  #sortuję wiersze z data frame "zliczona_lokalizacja" malejąco, biorąc pod uwagę wartości w kolumnie "Count"
+  lokalizacja_w_kolejnosci <- as.data.frame(zliczona_lokalizacja[order(zliczona_lokalizacja$Count, decreasing =  TRUE), ])
+  #zmieniam wartości nazw wierszy, żeby były kolejnymi wartościami porządkowymi( od 1 do ...)
+  rownames(lokalizacja_w_kolejnosci) <- NULL
+  return(lokalizacja_w_kolejnosci[1:10, ])
+}
+```
+
+sprawdzam poprawność zapisanej funkcji
+
+```{r}
+all_equal(df_base_2(Users, Posts), df_sql_2(Users, Posts))
+```
+
+*rozwiązanie 3 - z użyciem funkcji z pakietu dplyr*
+
+```{r}
+df_dplyr_2 <- function(Users, Posts){
+  #tworzymę x i y będącze póżniej potrzebne jako elementy do złączenia, czyli z "Users" i "Posts" wybieram kolumny, które będęy złączała ("Id" i "OwnerUserId") oraz kolumnę, która będzie potrzebna do dalszego przefiltrowywania danych ("Location") 
+  x <- select(Users, c("Id", "Location"))
+  y <- select(Posts, "OwnerUserId")
+  #tworzę data frame "lokalizacja_w_kolejnosci":
+  #inner_join() - łączę wczesnej utworzone x i y 
+  #select() - wybieram z utworzonego data frame kolumnę "Location"
+  #filter() - usuwam wszystkie wiersze w których kolumna "Location" jest pusta
+  #count() - tworzę nową kolumnę o nazwie "Count", w której dla każdej unikalnej wartości z "Location" przyjmuje wartość ile takich wartości występuje we wcześniej badanym data framie, od teraz również w kolumnie "Location" znajdują się tylko unikalne wartości
+  #arrange() - sortuję malejąco wiersze w otrzymanym data frame biorąc pod uwagę wartości w kolumnie "Count"
+  #top_n() - wybieram 10 pierwszych wierszy z otrzymanego wyniku
+  lokalizacja_w_kolejnosci <- inner_join(x, y, by = c("Id" = "OwnerUserId")) %>%
+    select(Location) %>% filter(Location != '') %>%
+    count(Location, name = "Count") %>%arrange(-Count)
+  return(top_n(lokalizacja_w_kolejnosci, 10))
+}
+```
+
+sprawdzam poprawność funkcji
+
+```{r}
+all_equal(df_dplyr_2(Users, Posts), df_sql_2(Users, Posts))
+```
+
+*rozwiązanie 4 - z użyciem funkcji z pakietu data.table*
+
+```{r}
+df_table_2 <- function(Users, Posts){
+  #łączę "Users" i "Posts" jako data table biorąc pod uwagę "Id" z data table "Users" i "OwnerUserId" z data table "Posts" łącząc wiersze, gdzie te dwie kolumny mają taką samą wartość
+  #wybieram z powstałego data table kolumnę "Location"
+  lokalizacja <- merge(
+    as.data.table(Users), as.data.table(Posts), by.x = "Id", by.y = "OwnerUserId")[,Location]
+  #as.data.table(lokalizacja[c(lokalizacja != '')]) - przefiltrowuję data table lokalizacja, żeby zostały tylko wiersze, nie są puste (nie są równe '')
+  #as.data.table(lokalizacja[c(lokalizacja != '')])[,.N, by = V1] - dodaję nową kolumnę, w której zliczam ile razy dana lokalizacja wystąpiła w poprzednim data table, od teraz również w kolumnie, w której są nazwy lokalizacji, występują tylko unikalne nazwy
+  # to data table składa się z nazwy lokalizacji w jednej kolumnie oraz z wartości ile razy dana lokalizacja występowała w poprzednim data table w drugiej kolumnie
+  #setnames(as.data.table(lokalizacja[c(lokalizacja != '')])[,.N, by = V1], c("V1", "N"), c("Location", "Count")) powoduje zmianę nazwy kolumny z poprzednich nazw kolejno na "Location" i "Count"
+  #setorder(..., -"Count") umożliwia posortowanie wierszy malejąco względem wartości w kolumnie o nazwie "Count"
+  posortowana_lokalizacja <- setorder(
+    setnames(as.data.table(lokalizacja[
+      c(lokalizacja != '')])[,.N, by = V1], c("V1", "N"), c("Location", "Count")),
+    cols = -"Count")
+  return(posortowana_lokalizacja[1:10])
+}
+```
+
+sprawdzam poprawność zapisanej funkcji
+
+```{r}
+all_equal(df_table_2(Users, Posts), df_sql_2(Users, Posts))
+```
+
+porównuję czasy wykonywania funkcji
+
+```{r}
+microbenchmark(
+sqldf = df_sql_2(Users, Posts),
+base = df_base_2(Users, Posts),
+dplyr = df_dplyr_2(Users, Posts),
+data.table = df_table_2(Users, Posts)
+)
+```
+
+**Zadanie 3**
+
+```{r}
+Badges <- read.csv("~/Desktop/studia/2.semestr/PDU/projekt 2/Badges.csv")
+```
+
+*rozwiązanie 1 - za pomocą poleceń z języka SQL*
+
+```{r}
+df_sql_3 <- function(Badges){
+  sqldf("SELECT Year, SUM(Number) AS TotalNumber
+        FROM (
+        SELECT
+        Name, 
+        COUNT(*) AS Number,
+        STRFTIME('%Y', Badges.Date) AS Year
+        FROM Badges
+        WHERE Class = 1
+        GROUP BY Name, Year
+        )
+        GROUP BY Year
+        ORDER BY TotalNumber") -> df3
+  return(df3)
+}
+```
+
+*rozwiązanie 2 - za pomocą tylko funkcji bazowych*
+
+```{r}
+df_base_3 <- function(Badges){
+  #najpierw zmniejszam data frame tylko do tych wierszy w ktorych wartosc Class jest rowna 1
+  klasa_1 <- Badges[which(Badges$Class == 1), ]
+  #zmieniam format daty, zeby zostal nam tylko rok
+  klasa_1$Date <- format(as.Date(klasa_1$Date), format = "%Y")
+  #teraz zmieniam nazwe kolumny "Date"
+  colnames(klasa_1)[colnames(klasa_1) == "Date"] <- "Year"
+  # jako "df" tworzę data frame, który ma 2 kolumny z wartościami z "Name" i "Year" (jednak wiersze są pogrupowane ze względu na te 2 grupy) poprzedniego data frame'u oraz trzecią kolumnę zawierającą ilość wierszy z "klasa_1" wchodzących w skład danej grupy
+  df <- as.data.frame(table(klasa_1[,c("Name", "Year")]))
+  #zmieniam nazwę utworzonej kolumny na "Number"
+  colnames(df)[3] <- "Number" 
+  #grupuję wiersze w "df" ze względu na wartości w kolumnie "Year", w kolumnie "Number" sumuję wartości z tej kolumny dla całej grupy
+  df <- aggregate(df["Number"], df["Year"], FUN = sum)
+  df$Year <- as.character(df$Year)
+  #zmieniam nazwę kolumny z "Number" na "TotalNumber"
+  colnames(df)[colnames(df) == "Number"] <- "TotalNumber"
+  #porządkuję powstały data frame rosnąco, biorąc pod uwagę wartości z kolumny "TotalNumber"
+  df <- df[order(df$TotalNumber), ]
+  rownames(df) <- NULL
+  return(df)
+}
+```
+
+sprawdzam poprawność funkcji
+
+```{r}
+all_equal(df_base_3(Badges), df_sql_3(Badges))
+```
+
+*rozwiązanie 3 - za pomocą funkcji z pakietu dplyr*
+
+```{r}
+df_dplyr_3 <- function(Badges){
+  #jako "klasa_1" zapisuję data frame z tych wierszy z "Badges", które w kolumnie "Class" przyjmują wartość 1
+  klasa_1 <- filter(Badges, Class == 1)
+  #formatuję zapis nazwy w kolumnie "Date" tak, aby został jedynie rok
+  klasa_1$Date <- as.character(year(strptime(klasa_1$Date, "%Y")))
+  klasa_1 <- klasa_1%>%rename("Year" = "Date")%>% #zmieniam nazwę kolumny z "Date" na "Year"
+    count(Name, Year, name = "Number")%>% #tworzę data frame składający się z kolumn "Name", "Year" oraz kolumny "Number" zawierającej wartość odpowiadającą ilości wierszy, z taką samą wartością zarówno w kolumnie "Name" jak i "Year"
+    group_by(Year)%>% # grupuję data frame biorąc pod uwagę wartość w kolumnie "Year"
+    summarise(TotalNumber = sum(Number)) #sumuję wszystkie wartości wchodzące w skład tej samej z utworzonych grup jako "TotalNumber"
+  #sortuję wiersze w "klasa_1" rosnąco
+  return(arrange(klasa_1))
+}
+```
+
+sprawdzam poprawność funkcji
+
+```{r}
+all_equal(df_dplyr_3(Badges), df_sql_3(Badges))
+```
+
+*rozwiązanie 4 - za pomocą funkcji z pakietu data.table*
+
+```{r}
+df_table_3 <- function(Badges){
+  #jako "klasa_1" zapisuję Badges jako data table
+  #wybieram tylko te wiersze, które mają wartość 1 w kolumnie "Class"
+  #zmieniam format daty tak, że zostaje tylko rok
+  klasa_1 <- data.table(Badges)[Class==1][
+    , Date := as.character(year(as.POSIXct(Date, format = "%Y")))]
+  #zamieniam nazwę kolumny z "Date" na "Year"
+  setnames(klasa_1, "Date", "Year")
+  #z "klasa_1" wybieram kolumny "Name" i "Year", a następnnie dodaję kolumnę "N", w której znajduje się wartość odpowiedając liczebności grupy wierszy o takich samych wartościach w kolumnach zarówno "Name" jak i "Year"
+  klasa_1 <- klasa_1[, c("Name", "Year")][, .N, by = .(Name, Year)]
+  #zmieniam nazwę kolumny z "N" na "Number"
+  setnames(klasa_1, "N", "Number")
+  #sumuję wartości z kolumny "Number" (tworzę nową kolumnę na te sumy) dla grup wierszy zawierających taką samą wartość w kolumnie "Year"
+  klasa_1 <- klasa_1[, sum(Number), by = "Year"]
+  #nazywam nowo utworzoną kolumnę "TotalNumber"
+  setnames(klasa_1, "V1", "TotalNumber")
+  #sortuję wiersze w "klasa_1" rosnącoc
+  klasa_1 <- setorder(klasa_1, "TotalNumber")
+  return(klasa_1)
+}
+```
+
+sprawdzam poprawność funkcji
+
+```{r}
+all_equal(df_table_3(Badges), df_sql_3(Badges))
+```
+
+porównuję czas wykonywania funkcji
+
+```{r}
+microbenchmark(
+sqldf = df_sql_3(Badges),
+base = df_base_3(Badges),
+dplyr = df_dplyr_3(Badges),
+data.table = df_table_3(Badges)
+)
+```
+
+**Zadanie 4**
+
+```{r}
+Users <- read.csv("~/Desktop/studia/2.semestr/PDU/projekt 2/Users.csv")
+Posts <- read.csv("~/Desktop/studia/2.semestr/PDU/projekt 2/Posts.csv")
+```
+
+*rozwiązanie 1 - za pomocą poleceń z języka SQL*
+
+```{r}
+df_sql_4 <- function(Users, Posts){
+  sqldf("SELECT
+        Users.AccountId,
+        Users.DisplayName,
+        Users.Location,
+        AVG(PostAuth.AnswersCount) as AverageAnswerCount
+        FROM
+        (
+        SELECT
+        AnsCount.AnswersCount,
+        Posts.Id,
+        Posts.OwnerUserId
+        FROM (
+        SELECT Posts.ParentId, COUNT(*) AS AnswersCount
+        FROM Posts
+        WHERE Posts.PostTypeId = 2
+        GROUP BY Posts.ParentId
+        ) AnsCount
+        JOIN Posts ON Posts.Id = AnsCount.ParentId
+        ) AS PostAuth
+        JOIN Users ON Users.AccountId=PostAuth.OwnerUserId
+        GROUP BY OwnerUserId
+        ORDER BY AverageAnswerCount DESC, AccountId ASC
+        LIMIT 10") -> df1
+  return(df1)
+}
+```
+
+*rozwiązanie 2 - korzystam tylko z funkcji bazowych*
+
+```{r}
+df_base_4 <- function(Users, Posts){
+  #tworzę AnsCount
+  #z "Posts" wybieram te wiersze, które w kolumnie "PostTypeId" przyjmują wartość 2 oraz tworzę nową kolumnę w której znajduje się wartość przedstawiająca ilość wierszy w danej grupie, a dany data frame został pogrupowany, biorąc pod uwagę wartości w kolumnie "ParentId"
+  AnsCount <- as.data.frame(table(Posts[Posts$PostTypeId == 2, "ParentId"]), stringAsFactors = FALSE)
+  #zmieniam nazwy "AnsCount" na "ParentId", "AnswersCount"
+  colnames(AnsCount) <- c("ParentId", "AnswersCount")
+  #tworzymy PostAuth
+  #wykonuję polecenie AnsCount JOIN Posts ON Posts.Id = AnsCount.ParentId - do "AnsCount" dołączamy "Posts", dopasowując wiersze wartościami kolejno "ParentId" oraz "Id"
+  po_join <- merge(x = AnsCount, y = Posts, by.x = "ParentId", by.y = "Id")
+  #wybieram kolumny, które będą się składały na "PostAuth"
+  PostAuth <- data.frame(po_join$AnswersCount, po_join$ParentId, po_join$OwnerUserId)
+  #zmieniam na odpowiednie nazwy kolumn w "PostAuth"
+  colnames(PostAuth) <- c("AnswersCount", "ParentId", "OwnerUserId")
+  #wykonuję polecenie PostAuth JOIN Users ON Users.AccountId=PostAuth.OwnerUserId - do "PostAuth" przyłączam "Users", dopasowując wartości wierszy w kolumnach odpowiednio "OwnerUserId" oraz "AccountId"
+  po_join_2 <- merge(x = PostAuth, y = Users, by.x = "OwnerUserId", by.y = "AccountId")
+  #grupuję data frame biorąc pod uwagę wartości w kolumnie "OwnerUserId" oraz tworzę nową kolumnę o nazwie "AverageAnswersCount", w której będzie znajdowała się wartość średniej arytmetycznej wartości z "AnswersCount" dla każdej z grup posortowanych względem "OwnerUserId"
+  #"pogrupowane" będzie się składała z 2 kolumn - unikalnej wartości "OwnerUserId" oraz wartości wyżej wspomnianej średniej arytmetycznej dla odpowiedniego "OwnerUserId"
+  pogrupowane <- aggregate(po_join_2$AnswersCount, po_join_2["OwnerUserId"], mean, na.rm = TRUE)
+  #zmieniam nazwę nowo utworzonej kolumny na "AverageAnswersCount"
+  colnames(pogrupowane)[2] <- "AverageAnswersCount"
+  # jako "z" oznaczam połączenie "po_join_2" z "pogrupowane", dopasowując wiersze wartościami z kolumn "OwnerUserId"
+  z <- merge(x = po_join_2, y = pogrupowane, by = "OwnerUserId", all.x = TRUE)
+  #sortuję wiersze malejąco biorąc pod uwagę wartość w kolumnie "AverageAnswersCout", a w przypadku takiej samej wartości rosnąco biorąc pod uwagę wartość w kolumnie "AccountId"
+  z <- z[order(z$AverageAnswersCount, z$OwnerUserId, decreasing=c(TRUE, FALSE)), ]
+  #wybieram konkretne kolumny, które muszą zostać zwrócone oraz zmieniam na odpowiednie nazwy konkretnych kolumn
+  z <- data.frame(z$OwnerUserId, z$DisplayName, z$Location, z$AverageAnswersCount)
+  colnames(z) <- c("AccountId", "DisplayName", "Location", "AverageAnswerCount")
+  #zwracam 10 pierwszych wierszy z otrzymanego data frame'u
+  return(z[1:10, ])
+}
+```
+
+sprawdzam poprawność funkcji
+
+```{r}
+all_equal(df_base_4(Users, Posts), df_sql_4(Users, Posts))
+```
+
+*rozwiązanie 3 - używając funkcji z pakietu dplyr*
+
+```{r}
+df_dplyr_4 <- function(Users, Posts){
+  #tworzę data frame AnsCount
+  #filter(Posts, PostTypeId == 2) - filtruję data frame "Posts" tak, żeby zostały tylko wiersze, które mają wartość 2 w kolumnie "PostTypeId"
+  #count(ParentId) - zliczamy ile jest różnych wartości w kolumnie "ParentId", tworzymy data frame, który zawiera w kolumnie "ParentId" unikalne wartości z kolumny "ParentId" z poprzedniego data frame, a w drugiej kolumnie o nazwie "n" wartość wskazującą ile razy w poprzednim data frame w kolumnie "ParentId" występowała konkretna wartość
+  # rename(AnswersCount = n ) - zmieniamy nazwę kolumny z data frame z "n" na "AnswersCount"
+  AnsCount <- filter(Posts, PostTypeId == 2)%>%
+    count(ParentId)%>%
+    rename(AnswersCount = n )
+  #tworzę PostAuth
+  #żeby utorzyć ten data frame muszę do AnsCount dołączyć Posts, dopasowując wartości z "Post" i "AnsCount" biorąc pod uwagę wartości kolejno z kolumn o nazwach "Id" i "ParentId"
+  #po złączeniu tych dwóch data frame'ów wybieram odpowiednie kolumny - "AnswersCount", "Id", "OwnerUserId"
+  PostAuth <- select(inner_join(AnsCount, Posts, by = c("ParentId" = "Id")),
+                     AnswersCount, ParentId, OwnerUserId)
+  #wykonuję PostAuth JOIN Users ON Users.AccountId=PostAuth.OwnerUserId
+  po_join_2 <- inner_join(PostAuth, Users, by = c("OwnerUserId" = "AccountId"))
+  #grupuję otrzymany data frame według wartości w kolumnie "OwnerUserId" oraz do danego data frame'u dodaję kolumnę zawierającą średnią wartość z kolumny "AnswersCount" dla każdej wartości "OwnerUserId" i nazwanie tej kolumny jako "AverageAnswersCount" - tak otrzymuję "pogrupowane"
+  pogrupowane <- po_join_2 %>% group_by(OwnerUserId) %>%
+    summarize(AverageAnswerCount = mean(AnswersCount))
+  #do dota frame "po_join_2" dodaję odpowiednie wiersze z data frame'u "pogrupowane", przypasowując wartości w kolumny "OwnerUserId"
+  #otrzymany data frame trzeba posortować. Sortuję go malejąco biorąc pod uwagę wartości w kolumnie "AverageAnswersCount", a jeżeli jakieś wartości się powtarzają sortuję wtedy wiersze rosnąco, biorąc pod uwagę wartości w kolumnie "AccountId"
+  #zmieniam nazwy kolumn na odpowiednie
+  z <- left_join(po_join_2, pogrupowane, by = "OwnerUserId")%>%
+    arrange(OwnerUserId)%>%
+    arrange(desc(AverageAnswerCount))%>%
+    select(OwnerUserId, DisplayName, Location, AverageAnswerCount)%>%
+    rename("AccountId" = "OwnerUserId")
+  #wybieram 10 pierwszych wierszy z otrzymanego data frame'u
+  return(top_n(z, 10))
+}
+```
+
+sprawdzam poprawność funkcji
+
+```{r}
+all_equal(df_dplyr_4(Users, Posts), df_sql_4(Users, Posts))
+```
+
+*rozwiązanie 4 - z użyciem funkcji z pakietu data.table*
+
+```{r}
+df_table_4 <-function(Users, Posts){
+  #tworzę data table AnsCount
+  #as.data.table(Posts)[PostTypeId=="2"] - pozwala na przefiltrowanie "Posts" jako data table, zostawia tylko te wiersze, które w kolumnie "PostTypeId" mają wartość 2
+  #as.data.table(Posts)[PostTypeId=="2"][,.N,by=ParentId] pozwala na stworzenie data table, w jednej kolumnie "ParentId" będą znajdowały się unikalne wartości z kolumny "ParentId", a w drugiej kolumnie nazwanej "N" znajdują się wartości, oznaczające ile razy w poprzednim data table w kolumnie "ParentId" występują konkretne nazwy
+  #setnames(..., "N", "AnswersCount") pozwala na zmienienie nazwy ostatnio utworzonej kolumny "N" na "AnswersCount"
+  AnsCount <- setnames(as.data.table(Posts)[PostTypeId=="2"][,.N,by=ParentId], "N", "AnswersCount")
+  #tworzę data table PostAuth. Żeby to zrobić, muszę połączyć data table "AnsCount" i "Posts", dopasowując wartości znajdujące się kolejno w kolumnach o nazwach "ParentId" oraz "Id"
+  #z otrzymanego data table (nazwanego "po_join") wybieram potrzebne kolumny - "AnswersCount", "ParentId", "OwnerUserId"
+  po_join <- merge.data.table(AnsCount, Posts, by.x = "ParentId", by.y = "Id")
+  PostAuth <- po_join[,.(AnswersCount, ParentId, OwnerUserId)]
+  #łączę data table "PostAuth" i "Users", dopasowując wiersze wartościami z kolumn kolejno "OwnerUserId" i "AccountId" 
+  po_join_2 <- merge.data.table(PostAuth, Users, by.x = "OwnerUserId", by.y = "AccountId")
+  #grupuję otrzymany data table "po_join_2" ze względu na wartości w kolumnie "OwnerUserId", dodajemy kolumnę "AverageAnswerCount", w której umieszczam wartość średnią z wartści w kolumnie "AnswersCount" dla każdej z grup określonych wcześniej 
+  pogrupowane <- po_join_2[,.(AverageAnswerCount=mean(AnswersCount)), by=OwnerUserId]
+  #merge.data.table(po_join_2, pogrupowane, by = "OwnerUserId", all.x = TRUE) - łączę data table "po_join_2" z "pogrupowane" dopasowując wartościami z kolumn "OwnerUserId" tak, żeby do każdej wartości z "po_join_2" dopasować odpowiedni wiersz z "pogrupowane"
+  #setorder(merge.data.table(po_join_2, pogrupowane, by = "OwnerUserId", all.x = TRUE),OwnerUserId) - sortuję otrzymaną data table rosnąco biorąc pod uwagę wartości w kolumnie "OwnerUserId"
+  #setorder(setorder(merge.data.table(po_join_2, pogrupowane, by = "OwnerUserId", all.x = TRUE),OwnerUserId)), -AverageAnswerCount) - sortuję otrzymaną data table malejąco biorąc pod uwagę wartości w kolumnie "AverageAnswerCount"
+  #...[,.(OwnerUserId, DisplayName, Location, AverageAnswerCount)] - (... (w funkcji miejsce ... zastępuję oczywiście data table utworzoną chwilę wcześniej)) pozwala wybrać z ... odpowiednie kolumny - "OwnerUserId", "DisplayName", "Location", "AverageAnswerCount"
+  #setnames(..., "OwnerUserId", "AccountId") - pozwala na zmianę nazwy w data table ... z "OwnerUserId" na "AccountId"
+  z <- setnames(setorder(setorder(
+    merge.data.table(
+      po_join_2, pogrupowane, by = "OwnerUserId", all.x = TRUE),OwnerUserId), 
+    -AverageAnswerCount)[,.(OwnerUserId, DisplayName, Location, AverageAnswerCount)], "OwnerUserId", "AccountId")
+  #wybieram 10 pierwszych wierszy
+  return(z[1:10])
+}
+```
+
+```{r}
+all_equal(df_table_4(Users, Posts), df_sql_4(Users, Posts))
+```
+
+porównuję czasy wykonywania wszystkich funkcji
+
+```{r}
+microbenchmark(
+sqldf = df_sql_4(Users, Posts),
+base = df_base_4(Users, Posts),
+dplyr = df_dplyr_4(Users, Posts),
+data.table = df_table_4(Users, Posts)
+)
+```
+
+**Zadanie 5**
+
+ładuję odpowiednie tabele
+```{r}
+Votes <- read.csv("~/Desktop/studia/2.semestr/PDU/projekt 2/Votes.csv")
+Posts <- read.csv("~/Desktop/studia/2.semestr/PDU/projekt 2/Posts.csv")
+```
+
+
+*rozwiązanie 1 - SQL*
+
+```{r}
+df_sql_5 <- function(Posts, Votes){
+  sqldf("SELECT Posts.Title, Posts.Id,
+        STRFTIME('%Y-%m-%d', Posts.CreationDate) AS Date,
+        VotesByAge.Votes
+        FROM Posts
+        JOIN (
+        SELECT
+        PostId,
+        MAX(CASE WHEN VoteDate = 'new' THEN Total ELSE 0 END) NewVotes,
+        MAX(CASE WHEN VoteDate = 'old' THEN Total ELSE 0 END) OldVotes,
+        SUM(Total) AS Votes
+        FROM (
+        SELECT
+        PostId,
+        CASE STRFTIME('%Y', CreationDate)
+        WHEN '2021' THEN 'new'
+        WHEN '2020' THEN 'new'
+        ELSE 'old'
+        END VoteDate,
+        COUNT(*) AS Total
+        FROM Votes
+        WHERE VoteTypeId IN (1, 2, 5)
+        GROUP BY PostId, VoteDate
+        ) AS VotesDates
+        GROUP BY VotesDates.PostId
+        HAVING NewVotes > OldVotes
+        ) AS VotesByAge ON Posts.Id = VotesByAge.PostId
+        WHERE Title NOT IN ('')
+        ORDER BY Votes DESC
+        LIMIT 10") -> df5
+  return(df5)
+}
+```
+
+*rozwiązanie 2 - za pomocą funkcji bazowych*
+
+```{r}
+df_base_5 <- function(Posts, Votes){
+  #tworzę data frame "VotesDates"
+  #zmieniam zapis daty, z formatu umieszczonego w pliku na sam rok
+  Votes$CreationDate <- format(as.Date(Votes$CreationDate), format = '%Y')
+  #jeżeli wartość w danym wierszu w kolumnie CreationDate jest równa 2020 lub 2021, zamieniam ją na napis 'new', w przeciwnym przypadku zastępuję ją napisem 'old'
+  Votes$CreationDate<- ifelse(Votes$CreationDate == 2021, 'new', ifelse(Votes$CreationDate == 2020, 'new', 'old'))
+  #zmieniam nazwę kolumny z "CreationDate" na "VoteDate" (w kolumnie znajdują się juz napisy 'old' bądź 'new')
+  colnames(Votes)[colnames(Votes) == "CreationDate"] <- "VoteDate"
+  #tworzę data frame "VotesDates", który zawiera wiersze z Votes, które w kolumnie VoteTypeId przyjmują wartość 1, 2 lub 5
+  #grupuję data frame, biorąc pod uwagę wartości w kolumnach o nazwach "PostId" i "VoteDate"
+  #utworzony data frame "VotesDates" będzie się składał z 3 kolumn: "PostId", "VoteDate" oraz nowo stworzonej kolumny, w której będzie się znajdowała wartość odpowiadająca ilości elementów z data frame Votes, składających się na każdą z grup, o których tworzeniu wspomniałam wyżej
+  VotesDates <- as.data.frame(table(Votes[Votes$VoteTypeId == 1 |Votes$VoteTypeId == 2 |Votes$VoteTypeId == 5, c("PostId", "VoteDate")]), stringAsFactors = FALSE)
+  #nowo utworzoną kolumnę nazwyam "Total"
+  colnames(VotesDates)[3] <- "Total"
+  #tworzę data frame "VotesByAge"
+  #pod uwagę będę brała wartości w kolumnie VoteDate data frame'u VotesDates tworzę data frame VotesByAge (nie jest to jeszcze wersja ostateczna tego data frame'u) 
+  #do data frame'u dodaję nową kolumnę o nazwie "allnewvotes", w której będzie znajdowała się wartość z tego samego wiersza z kolumny "Total", jeżeli w kolumnie "VoteDate" jest wartość 'new', lub 0, w przeciwnym przypadku
+  VotesByAge <- cbind(VotesDates, allnewvotes = ifelse(VotesDates$VoteDate == 'new', VotesDates$Total, 0))
+  #do utworzonego data frame'u "VotesByAge" dodaję nową kolumnę o nazwie "alloldvotes", w której znajduje się dla danej kolumny wartość z kolumny "Total" z tego samego wiersza, jeśli w tym wierszu w kolumnie VoteDate jest wartość 'old' lub 0 w przeciwnym przypadku
+  VotesByAge <- cbind(VotesByAge, alloldvotes = ifelse(VotesByAge$VoteDate == 'old', VotesByAge$Total, 0))
+  #tworzę data frame newvotes składający się z dwóch kolumn, z których w jednej z kolumn znajduje się unikalna wartość z kolumny PostId z data frame VotesByAge, natomiast w drugiej kolumnie znajduje się maksymalna wartość z kolumny allnewvotes z tego samego data frame dla konkretnego PostId
+  newvotes <- aggregate(VotesByAge$allnewvotes, VotesByAge["PostId"], max, na.rm = TRUE)
+  #nowo utworzoną kolumnę nazywam "NewVotes"
+  colnames(newvotes)[2] <- "NewVotes"
+  #tworzę nowy data frame składający się z dwóch kolumn, w których w pierwszej znajduje się unikalna wartość z kolumny "PostId" z data frame'u VotesByAge, natomiast w drugiej kolumnie znajduje się maksymalna wartość z kolumny "alloldvotes" dla danego "PostId" 
+  #zarówno tutaj, jak i w przypadku tworzenia "NewVotes" grupuję wiersze data frame'u "VotesByAge" biorąc pod uwagę wartość w kolumnie "PostId"
+  oldvotes <- aggregate(VotesByAge$alloldvotes, VotesByAge["PostId"], max, na.rm = TRUE)
+  #zmieniam nazwę nowo utworzonej kolumny na "OldVotes"
+  colnames(oldvotes)[2] <- "OldVotes"
+  #łączę data frame'y "VotesByAge" kolejno z "newvotes" i "oldvotes", dopasowując wiersze ze względu na wartości w kolumnie "PostId"
+  VotesByAge <- merge(VotesByAge, newvotes, by = "PostId")
+  VotesByAge <- merge(VotesByAge, oldvotes, by = 'PostId')
+  #tworzę data frame "votes" tak, że w pierwszej kolumnie znajdują się unikalne wartości z kolumny "PostId" z data frame'u "VotesByAge", natomiast w drugiej kolumnie znajduje się suma wartości z kolumny "Total", dla każdej grupy (pogrupowałam biorąc pod uwagę wartości z kolumny "PostId" z "VotesByAge")
+  votes <- aggregate(VotesByAge$Total, VotesByAge["PostId"], FUN = sum)
+  #zmieniam nazwę nowo utworzonej kolumny na "Votes"
+  colnames(votes)[2] <- "Votes"
+  #do data frame'u "PostId" dodaję data frame "votes", dopasowując wiersze ze względu na wartość w kolumnie "PostId", w efekcie czego dostaję wcześniejszy data frame poszerzony o kolumnę "Votes"
+  VotesByAge <- merge(VotesByAge, votes, by = "PostId")
+  #do data frame'u "VotesByAge" wybieram tylko te wiersze, które zawierają większą wartość w kolumnie "NewVotes", niż w kolumnie "OldVotes"
+  VotesByAge <- VotesByAge[VotesByAge$NewVotes > VotesByAge$OldVotes, ]
+  #jako "VotesByAge" jedynie kolumny "PostId", "NewVotes", "OldVotes", "Votes"
+  VotesByAge <- data.frame(VotesByAge$PostId, VotesByAge$NewVotes, VotesByAge$OldVotes, VotesByAge$Votes)
+  #zmieniam nazwy kolumn "VotesByAge" na odpowiednie
+  colnames(VotesByAge) <- c("PostId", "NewVotes", "OldVotes", "Votes")
+  #jako zmergowany łączę data frame'y "Posts" oraz "Votes", przyłączam je dopasowując wartości w kolumnie "Id" z "Posts" oraz "PostId" z "VotesByAge"
+  zmergowany <- merge(Posts, VotesByAge, by.x = "Id", by.y = "PostId")
+  #usuwam wszystkie wiersze, które nie zawierają nic w komórce kolumny "Title"
+  zmergowany <- zmergowany[which(zmergowany$Title != ('')), ]
+  #sortuję wiersze data frame'u "zmergowany" malejąco, biorąc pod uwagę wartości z kolumny "Votes"
+  zmergowany <- zmergowany[order(zmergowany$Votes, decreasing = TRUE), ]
+  #zmieniam format daty na wymagany
+  zmergowany$CreationDate <- format(as.Date(zmergowany$CreationDate), format = '%Y-%m-%d')
+  #zmieniam nazwę kolumny "CreationDate" na "Date"
+  colnames(zmergowany)[colnames(zmergowany) == "CreationDate"] <- "Date"
+  #w data frame "wynik" będą znajdowały się jedyne kolumny "Title", "Id", "Date" oraz "Votes" z data frame'u "zmergowany" 
+  wynik <- data.frame(zmergowany$Title, zmergowany$Id, zmergowany$Date, zmergowany$Votes)
+  #nadaję kolumnom z "wynik" odpowiednie nazwy
+  colnames(wynik) <- c("Title", "Id", "Date", "Votes")
+  #wcześniej grupowałam biorąc pod uwagęwartości dla wierszy w kolumnach "PostId" i "VoteDate", jednak w wyniku nie występuje już kolumna "VoteDate", dlatego ostatecznie wiersze mogą się powtarzać, dlatgo jako "wynik" wybieramy tylko unikalne wiersze
+  wynik <- unique(wynik)
+  #ustawiam numerację co 1 od 1
+  rownames(wynik) <- NULL
+  #zwracam pierwsze 10 wierszy z data frame'u "wynik"
+  return(head(wynik, 10))
+}
+```
+
+sprawdzam zgodność napisanej funkcji
+
+```{r}
+all_equal(df_base_5(Posts, Votes), df_sql_5(Posts, Votes))
+```
+
+*rozwiązanie 3 - za pomocą funkcji z pakietu dply*
+
+```{r}
+df_dplyr_5 <- function(Posts, Votes){
+  #tworzę data frame "df", który będzie pomocniczy do utworzenia "VotesDates"
+  #jako "df" wybieram te wiersze w "Votes", które w kolumnie "VoteTypeId" przyjmują wartość 1, 2 lub 5
+  df <- filter(Votes, (VoteTypeId == 1| VoteTypeId == 2|VoteTypeId == 5))
+  #zmieniam format daty znajdującej się w kolumnie "CreationDate" tak, aby został jedynie rok z całej daty
+  df$CreationDate <- year(strptime(df$CreationDate, "%Y"))
+  #jako VotesDates wybieram z data frame'u "df" jedynie kolumny "PostId" i "CreationDate", a następnie dodaję kolumnę "VoteDate", w której będą znajdowały się wartości "new", gdy w kolumnie "CreationDate" znajduje się wartość 2020 lub 2021 i "old" w przeciwnym przypadku
+  #w kolejnych linijkach tworzę kolmny "NewVotes" i "OldVotes"
+  VotesDates <- df%>%select(PostId, CreationDate)%>%mutate(
+    VoteDate = 
+      case_when(
+        CreationDate == "2021" ~ "new",
+        CreationDate == "2020" ~ "new",
+        TRUE ~ "old"
+      )
+  )%>% select("PostId", "VoteDate")%>% #wybieram kolumny "PostId" oraz "VoteDate"
+    count(PostId, VoteDate, name = "Total")%>% #tworzę kolumnę "Total", do której zliczam ile wartości znajduje się z każdej z grup
+    mutate( NewVotes = #tworzę kolumnę "NewVotes", w której dla danego wiersza jeśli wartość w "VoteDate" jest "new", wstawiam wartość z Total, a w przeciwnym przypadku 0
+            case_when(
+                      VoteDate == "new" ~ Total,
+                      TRUE ~ Total - Total
+                     )
+    )%>%mutate(OldVotes = # tworzę kolumnę "OldVotes", w której wstawiam dla danego wiersza wartość z "Total", jeśli wartość w "VoteDate" przyjmuje "old", a 0 w przeciwnym przypadku
+                 case_when(
+                   VoteDate == "old" ~ Total,
+                   TRUE ~ Total - Total
+                 )
+    )
+  #tworzę VotesByAge
+  #wybieram kolumny "PostId", "NewVotes", "OldVotes", "Total" z "VotesDates", które będą występowały w data frame "VotesByAge", następnie grupuję wiersze z tego data frame'u biorąc pod uwagę ich wartość w kolumnie "PostId", a w kolumnach "NewVotes", "OldVotes" i "Total" wpisuję odpowiednio dla każdej grupy "PostId" odpowiednio maksymalną wartość z "NewVotes", "OldVotes" oraz sumę wszystkich wartości z kolumny "Total" dla tej grupy
+  VotesByAge <- VotesDates%>%select("PostId", "NewVotes", "OldVotes", "Total")%>%
+    group_by(PostId)%>%summarise(NewVotes = max(NewVotes), OldVotes = max(OldVotes), 
+                                                          Votes = sum(Total))%>%
+    filter(NewVotes > OldVotes) # na koniec do VotesByAge wybieram tylko te wiersze, które spełniają podany warunek - przyjmują większą wartość w kolumnie "NewVotes" niż w kolumnie "OldVotes"
+  #tworzę teraz pomocniczy data frame "df2", w którym będą znajdowały się kolumny "Title", "Id" i "CreationDate" z "Posts"
+  df2 <- select(Posts, c("Title", "Id", "CreationDate"))
+  #zmieniam format daty w kolumnie "CreationDate" z "df2" na odpowiedni
+  df2$CreationDate <- as.character(strptime(df2$CreationDate, "%Y-%m-%d"))
+  #zmieniam nazwę kolumny w data frame "df2" z "CreationDate" na "Date" 
+  df2 <- rename(df2, Date = "CreationDate")
+  #wybieram kolumny "Votes" i "PostId" z data frame'u "VotesByAge" (już z myślą o tym, co ma znajdować się w wyniku)
+  VotesByAge <- select(VotesByAge, c("Votes", "PostId"))
+  #do data frame "df2" dołączam data frame "VotesByAge" dopasowując wiersze po wartościach w kolumnach "Id" i "PostId"
+  VotesByAge <- inner_join(df2, VotesByAge, by = c("Id" = "PostId"))%>%
+    filter(Title != "")%>% #wybieram tylko te wiersze z połączonego data frame'u, w których komórka w kolumnie "Title" nie jest pusta
+   arrange(desc(Votes)) #sortuję wiersze stworzonego data frame'u malejąco, biorąc pod uwagę wartość w kolumnie "Votes"
+  #jako wynik zwracam pierwsze 10 wierszy z uworzonego data frame'u
+  return(VotesByAge[1:10, ])
+}
+```
+
+sprawdzam poprawność napisanej funkcji:
+
+```{r}
+all_equal(df_dplyr_5(Posts, Votes), df_sql_5(Posts, Votes))
+```
+
+*rozwiązanie 4 - za pomocą funkcji z pakietu data.table*
+
+```{r}
+df_table_5 <- function(Posts, Votes){
+  #najpierw wartości z "Votes" zapisuję jako data table (nazwane "VotesDates", jednak dopiero poźniej przekształcę ten data table odpowiednio, żeby powstało prawidłowe "VotesDates") 
+  VotesDates <- as.data.table(Votes)
+  #z "VotesDates" wybieam tylko te wiersze, które w kolumnie "VoteTypeId" przyjmują wartość 1, 2 lub 5
+  VotesDates <- VotesDates[VoteTypeId %in% c("1", "2", "5")
+   , .(PostId, CreationDate)] #wybieram z VotesDates tylko kolumny "PostId" i "CreationDate"
+  #pracując na kolumnie "CreationDate" zmieniam format daty tak, żeby została jedynie wartość roku
+  VotesDates$CreationDate <- year(strptime(VotesDates$CreationDate, format = "%Y"))
+  #tworzę data table "VotesByAge" w następujący sposób:
+  #dodaję kolumnę "VoteDate", która będzie miała wartość "old", gdy dla tego wiersza "CreationDate" jest równy 2020 lub 2021, a "old" w przeciwnym przypadku
+  #grupuję utworzony data table biorąc pod uwagę wartości w kolumnach "PostId" i "VoteDate" i tworzę kolumnę "N", w której znajduje się wartość odpowiadająca ilości wierszy wchodzących w skład danej grupy
+  VotesByAge <- as.data.table(VotesDates[, VoteDate := fifelse(
+    CreationDate==2020|CreationDate==2021, "new", "old")])[
+      , .N, by = c("PostId", "VoteDate")]
+  #zmieniamy nazwę kolumny z "N" na "Total"
+  setnames(VotesByAge, "N", "Total")
+  #do data table "VotesByAge" dodajemy kolumnę "NewVotes", w której znajduje się w konkretnym wierszu wartość z kolumny "Total" tego wiersza, jeżeli w tym wierszu w kolumnie "VoteDate" mamy "new", a w przeciwnym wypadku 0
+  VotesByAge <- as.data.table(VotesByAge[, NewVotes := fifelse(VoteDate == "new", Total, 0)])
+  #do data table "VotesByAge" dodaję kolumnę "OldVotes", w której znajduje się w konkretnym wierszu wartość z kolumny "Total" tego wiersza, jeżeli w tym wierszu w kolumnie "VoteDate" mamy "old", a w przeciwnym wypadku 0
+  VotesByAge <- as.data.table(VotesByAge[, OldVotes := fifelse(VoteDate == "old", Total, 0)])[ #wybieramy kolumny PostId, Total, NewVotes, OldVotes
+    , .(PostId, Total, NewVotes, OldVotes)][, max(NewVotes), .(PostId, OldVotes, Total)] #do stworzonego data table dołączam kolumnę, w której dla każdej z grup utworzonych przez wskazane kolumny wskazuję na maksymalną wartość z NewVotes dla danej grupy
+  setnames(VotesByAge, "V1", "NewVotes") #zmieniam nazwę z nowo utworzonej kolumny na "NewVotes"
+  VotesByAge <- VotesByAge[, max(OldVotes), .(PostId, NewVotes, Total)] #analogiczne działanie w celu stworzenia kolumny "OldVotes" (takie jak przy "NewVotes")
+  setnames(VotesByAge, "V1", "OldVotes")
+  VotesByAge <- VotesByAge[, sum(Total), .(NewVotes, OldVotes, PostId)] #tworzę kolumnę zawierającą sumę wartości z "TOtale" dla każdej z grup wyznaczonych przez wartości we wskazanych kolumnach
+  setnames(VotesByAge, "V1", "Votes") #zmieniam nazwę nowo utworzonej kolumny na "Votes"
+  #filtruję data table "VotesByAge" tak, żeby zawierał tylko te wiersze, w którch wartość w kolumnie "NewVotes" jest większa niż w kolumnie "OldVotes", z tego data table wybieram kolumny "Votes" i "PostId"
+  VotesByAge <- VotesByAge[which(NewVotes > OldVotes), .(Votes, PostId)]
+  #"Posts" zapisuję jako data table z "Posts", na który składają się tylko kolumny "Title", "Id", i "CreationDate" z "Posts"
+  Posts <- as.data.table(Posts)[, .(Title, Id, CreationDate)]
+  #zmieniam na odpowiedni format daty w kolumnie "CreationDate"
+  Posts$CreationDate <- as.character(strptime(Posts$CreationDate, format = "%Y-%m-%d"))
+  #zmieniam nazwę kolumny z "CreationDate" na "Date"
+  setnames(Posts, "CreationDate", "Date")
+  #jako "wynik" wykonuję złącznie data table "Posts" i "VotesByAge" dopasowując wiersze, biorąc pod uwagę wartości odpowiednio z kolumn "Id" i "PostId", z otrzymanego data table wybieram tylko te wiersze, które w kolumnie "Title" maja niepustą komórkę
+  wynik <- (merge.data.table(Posts, VotesByAge, by.x = "Id", by.y = "PostId")[which(Title != ''), ])
+  #zwracam 10 pierwszych wierszy w data frame "wynik", który będzie uprzednio posortowany malejąco, biorąc pod uwagę wartości w kolumnie "Votes"
+  return(setorder(wynik, -Votes)[1:10, ])
+}
+```
+
+sprawdzam poprawność napisanej funkcji:
+
+```{r}
+all_equal(df_table_5(Posts, Votes), df_sql_5(Posts, Votes))
+```
+
+porównuję czasy wykonywania poszczególnych funkcji
+
+```{r}
+microbenchmark(
+sqldf = df_sql_5(Posts, Votes),
+base = df_base_5(Posts, Votes),
+dplyr = df_dplyr_5(Posts, Votes),
+data.table = df_table_5(Posts, Votes)
+)
+```
+
+
+
+
